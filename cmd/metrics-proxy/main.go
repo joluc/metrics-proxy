@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -68,7 +69,12 @@ func main() {
 
 	allowedOrigins := []string{"https://joluc.de", "https://www.joluc.de"}
 	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
-		allowedOrigins = append(allowedOrigins, origins)
+		for _, o := range strings.Split(origins, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				allowedOrigins = append(allowedOrigins, o)
+			}
+		}
 	}
 
 	s := &server{
