@@ -11,13 +11,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type MetricConfig struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Unit  string `json:"unit"`
-	Query string `json:"-"`
+	ID    string `json:"id" yaml:"id"`
+	Label string `json:"label" yaml:"label"`
+	Unit  string `json:"unit" yaml:"unit"`
+	Query string `json:"-" yaml:"query"`
+}
+
+type Config struct {
+	Metrics []MetricConfig `yaml:"metrics"`
 }
 
 type DataPoint struct {
@@ -37,10 +43,9 @@ type MetricsPayload struct {
 	Metrics   []MetricResult `json:"metrics"`
 }
 
-var metrics = []MetricConfig{
+var defaultMetrics = []MetricConfig{
 	{ID: "water_islands_brygge", Label: "Water · Islands Brygge", Unit: "°C", Query: `badevand_water_temperature_celsius{site_id="badevand_Islands_Brygge_Havnebad"}`},
 	{ID: "air_copenhagen", Label: "Air · Copenhagen", Unit: "°C", Query: `weather_temperature_celsius{city="Copenhagen"}`},
-	{ID: "wind_copenhagen", Label: "Wind · Copenhagen", Unit: "m/s", Query: `weather_wind_speed_mps{city="Copenhagen"}`},
 	{ID: "pi_temps", Label: "Pi Temps · Cluster", Unit: "°C", Query: `node_thermal_zone_temp{type="cpu-thermal"}`},
 	{ID: "icebreakers_moving", Label: "Icebreakers · Baltic", Unit: "ships", Query: `count(icebreaker_speed_over_ground_knots > 0)`},
 	{ID: "pods_running", Label: "Pods · Homelab", Unit: "pods", Query: `count(kube_pod_status_phase{phase="Running"})`},
@@ -51,9 +56,28 @@ var metrics = []MetricConfig{
 type server struct {
 	thanosURL string
 	client    *http.Client
+	metrics   []MetricConfig
 	mu        sync.RWMutex
 	payload   []byte
 	allowedOrigins []string
+}
+
+func loadConfig(path string) ([]MetricConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	if len(cfg.Metrics) == 0 {
+		return nil, fmt.Errorf("no metrics defined in config")
+	}
+
+	return cfg.Metrics, nil
 }
 
 func main() {
@@ -67,6 +91,19 @@ func main() {
 		listenAddr = ":8080"
 	}
 
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "/etc/metrics-proxy/config.yaml"
+	}
+
+	metrics := defaultMetrics
+	if loaded, err := loadConfig(configPath); err != nil {
+		slog.Warn("config not loaded, using defaults", "path", configPath, "error", err)
+	} else {
+		metrics = loaded
+		slog.Info("loaded config", "path", configPath, "metrics", len(metrics))
+	}
+
 	allowedOrigins := []string{"https://joluc.de", "https://www.joluc.de"}
 	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
 		for _, o := range strings.Split(origins, ",") {
@@ -78,12 +115,13 @@ func main() {
 	}
 
 	s := &server{
-		thanosURL: thanosURL,
-		client:    &http.Client{Timeout: 30 * time.Second},
+		thanosURL:      thanosURL,
+		client:         &http.Client{Timeout: 30 * time.Second},
+		metrics:        metrics,
 		allowedOrigins: allowedOrigins,
 	}
 
-	slog.Info("starting metrics-proxy", "thanos_url", thanosURL, "listen", listenAddr)
+	slog.Info("starting metrics-proxy", "thanos_url", thanosURL, "listen", listenAddr, "metrics", len(metrics))
 
 	// Initial fetch
 	s.refresh()
@@ -139,7 +177,7 @@ func (s *server) refresh() {
 
 	var results []MetricResult
 
-	for _, m := range metrics {
+	for _, m := range s.metrics {
 		series, err := s.queryRange(m.Query, start, now, step)
 		if err != nil {
 			slog.Warn("query failed", "metric", m.ID, "error", err)
@@ -177,7 +215,7 @@ type prometheusResponse struct {
 		ResultType string `json:"resultType"`
 		Result     []struct {
 			Metric map[string]string `json:"metric"`
-			Values [][]interface{}   `json:"values"`
+			Values [][]any           `json:"values"`
 		} `json:"result"`
 	} `json:"data"`
 }
@@ -216,7 +254,7 @@ func (s *server) queryRange(query string, start, end int64, step int) ([]DataPoi
 	return averageSeries(pr.Data.Result), nil
 }
 
-func extractSeries(values [][]interface{}) []DataPoint {
+func extractSeries(values [][]any) []DataPoint {
 	points := make([]DataPoint, 0, len(values))
 	for _, v := range values {
 		if len(v) < 2 {
@@ -234,9 +272,8 @@ func extractSeries(values [][]interface{}) []DataPoint {
 
 func averageSeries(results []struct {
 	Metric map[string]string `json:"metric"`
-	Values [][]interface{}   `json:"values"`
+	Values [][]any           `json:"values"`
 }) []DataPoint {
-	// Build map of timestamp → sum of values and count
 	type acc struct {
 		sum   float64
 		count int
@@ -268,7 +305,7 @@ func averageSeries(results []struct {
 	return points
 }
 
-func parseFloat(v interface{}) float64 {
+func parseFloat(v any) float64 {
 	switch val := v.(type) {
 	case string:
 		var f float64

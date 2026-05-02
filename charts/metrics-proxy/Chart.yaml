@@ -2,8 +2,8 @@ apiVersion: v2
 name: metrics-proxy
 description: Lightweight proxy that caches Thanos metrics and serves them as JSON for joluc.de
 type: application
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.2.0
+appVersion: "0.2.0"
 home: https://github.com/joluc/metrics-proxy
 sources:
   - https://github.com/joluc/metrics-proxy
