@@ -1,0 +1,8 @@
+.git
+.github
+.gitignore
+.claude/
+*.md
+charts/
+tmp/
+*.tgz
