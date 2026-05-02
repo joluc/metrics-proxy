@@ -1,0 +1,32 @@
+name: Helm OCI Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release-oci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package and Push Chart
+        run: |
+          CHART_VERSION=$(grep '^version:' charts/metrics-proxy/Chart.yaml | awk '{print $2}')
+          helm package charts/metrics-proxy
+          helm push metrics-proxy-${CHART_VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
