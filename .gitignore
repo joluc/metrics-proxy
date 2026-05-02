@@ -1,0 +1,48 @@
+# Build artifacts
+.gocache/
+.gomodcache/
+/metrics-proxy
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Coverage
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+
+# MacOS
+.DS_Store
+
+# Helm
+charts/**/charts/
+*.tgz
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+.claude/
